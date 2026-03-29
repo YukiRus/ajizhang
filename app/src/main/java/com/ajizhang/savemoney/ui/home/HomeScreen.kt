@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Card
@@ -32,6 +33,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -51,11 +53,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ajizhang.savemoney.data.model.TransactionRecord
 import com.ajizhang.savemoney.data.model.TransactionType
+import com.ajizhang.savemoney.ui.settings.SettingsUiState
+import com.ajizhang.savemoney.ui.settings.SettingsViewModel
 import com.ajizhang.savemoney.util.DateFormatter
 import com.ajizhang.savemoney.util.MoneyFormatter
 import java.time.LocalDate
@@ -63,12 +68,15 @@ import java.time.LocalDate
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
+    settingsViewModel: SettingsViewModel,
     onAddTransaction: () -> Unit,
     onEditTransaction: (Long) -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val settingsUiState by settingsViewModel.uiState.collectAsStateWithLifecycle()
     var showGoalDialog by rememberSaveable { mutableStateOf(false) }
     var showInvestmentDialog by rememberSaveable { mutableStateOf(false) }
+    var showSettingsDialog by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -96,6 +104,7 @@ fun HomeScreen(
             GoalSection(
                 uiState = uiState,
                 onEditGoal = { showGoalDialog = true },
+                onOpenSettings = { showSettingsDialog = true },
             )
             BalancesSection(
                 investmentAmount = uiState.investmentAmount,
@@ -134,6 +143,20 @@ fun HomeScreen(
             },
         )
     }
+
+    if (showSettingsDialog) {
+        SettingsDialog(
+            uiState = settingsUiState,
+            onDismiss = { showSettingsDialog = false },
+            onApiBaseUrlChange = settingsViewModel::onApiBaseUrlChange,
+            onApiKeyChange = settingsViewModel::onApiKeyChange,
+            onModelNameChange = settingsViewModel::onModelNameChange,
+            onSave = {
+                settingsViewModel.save()
+                showSettingsDialog = false
+            },
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -141,6 +164,7 @@ fun HomeScreen(
 private fun GoalSection(
     uiState: HomeUiState,
     onEditGoal: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -186,8 +210,16 @@ private fun GoalSection(
                     )
                     GoalRecommendationText(uiState = uiState)
                 }
-                TextButton(onClick = onEditGoal) {
-                    Text(if (uiState.hasGoal) "编辑目标" else "设置目标")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            imageVector = Icons.Rounded.Settings,
+                            contentDescription = "打开设置",
+                        )
+                    }
+                    TextButton(onClick = onEditGoal) {
+                        Text(if (uiState.hasGoal) "编辑目标" else "设置目标")
+                    }
                 }
             }
 
@@ -203,6 +235,57 @@ private fun GoalSection(
             )
         }
     }
+}
+
+@Composable
+private fun SettingsDialog(
+    uiState: SettingsUiState,
+    onDismiss: () -> Unit,
+    onApiBaseUrlChange: (String) -> Unit,
+    onApiKeyChange: (String) -> Unit,
+    onModelNameChange: (String) -> Unit,
+    onSave: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("模型设置") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = uiState.apiBaseUrl,
+                    onValueChange = onApiBaseUrlChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("LLM API 地址") },
+                    supportingText = { Text("填写到 /v1 这一层即可，程序会自动拼接 /chat/completions") },
+                )
+                OutlinedTextField(
+                    value = uiState.apiKey,
+                    onValueChange = onApiKeyChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("LLM API Key") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+                OutlinedTextField(
+                    value = uiState.modelName,
+                    onValueChange = onModelNameChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("模型名称") },
+                    singleLine = true,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onSave) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+    )
 }
 
 @Composable
@@ -661,7 +744,7 @@ private fun TransactionItem(
                             append(transaction.note)
                             append(" · ")
                         }
-                        append(DateFormatter.format(transaction.occurredAt))
+                        append(DateFormatter.formatWithOptionalTime(transaction.occurredAt))
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

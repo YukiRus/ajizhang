@@ -1,6 +1,8 @@
 package com.ajizhang.savemoney.ui.editor
 
+import android.Manifest
 import android.app.DatePickerDialog
+import android.content.pm.PackageManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -15,14 +17,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.verticalScroll
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -40,6 +47,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -47,14 +55,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ajizhang.savemoney.data.model.TransactionType
 import com.ajizhang.savemoney.util.DateFormatter
 import java.time.LocalDate
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -64,8 +75,15 @@ fun TransactionEditorScreen(
     onBack: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
     var showCategoryManager by rememberSaveable { mutableStateOf(false) }
+    val recordAudioPermissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                viewModel.startVoiceRecording()
+            }
+        }
 
     LaunchedEffect(viewModel) {
         viewModel.events.collectLatest { event ->
@@ -129,6 +147,20 @@ fun TransactionEditorScreen(
                 onManageCategories = { showCategoryManager = true },
                 onNoteChange = viewModel::onNoteChange,
                 onDateChange = viewModel::onDateChange,
+                onVoicePress = {
+                    val hasPermission =
+                        ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.RECORD_AUDIO,
+                        ) == PackageManager.PERMISSION_GRANTED
+                    if (hasPermission) {
+                        viewModel.startVoiceRecording()
+                    } else {
+                        recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+                onVoiceRelease = viewModel::stopVoiceRecordingAndRecognize,
+                onVoiceCancel = viewModel::cancelVoiceRecording,
                 modifier = Modifier.padding(paddingValues),
             )
         }
@@ -180,8 +212,13 @@ private fun EditorContent(
     onManageCategories: () -> Unit,
     onNoteChange: (String) -> Unit,
     onDateChange: (Long) -> Unit,
+    onVoicePress: () -> Unit,
+    onVoiceRelease: () -> Unit,
+    onVoiceCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val showVoiceButton = !uiState.isExisting && uiState.type == TransactionType.EXPENSE
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -195,6 +232,20 @@ private fun EditorContent(
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
         )
+        if (showVoiceButton) {
+            VoiceExpenseInputButton(
+                isRecording = uiState.isVoiceRecording,
+                isRecognizing = uiState.isVoiceRecognizing,
+                statusMessage = uiState.voiceStatusMessage,
+                errorMessage = uiState.voiceErrorMessage,
+                onPress = onVoicePress,
+                onRelease = onVoiceRelease,
+                onCancel = onVoiceCancel,
+            )
+        }
+        if (uiState.llmRawResponse.isNotBlank()) {
+            LlmRawResponseSection(rawResponse = uiState.llmRawResponse)
+        }
         TypeSelector(
             selectedType = uiState.type,
             onTypeChange = onTypeChange,
@@ -246,6 +297,127 @@ private fun EditorContent(
             )
         }
     }
+}
+
+@Composable
+private fun VoiceExpenseInputButton(
+    isRecording: Boolean,
+    isRecognizing: Boolean,
+    statusMessage: String?,
+    errorMessage: String?,
+    onPress: () -> Unit,
+    onRelease: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    var elapsedSeconds by remember(isRecording) { mutableIntStateOf(0) }
+
+    LaunchedEffect(isRecording) {
+        if (!isRecording) {
+            elapsedSeconds = 0
+            return@LaunchedEffect
+        }
+        while (isRecording) {
+            delay(1_000)
+            elapsedSeconds += 1
+        }
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pointerInput(isRecognizing) {
+                detectTapGestures(
+                    onPress = {
+                        if (isRecognizing) {
+                            return@detectTapGestures
+                        }
+                        onPress()
+                        val released = tryAwaitRelease()
+                        if (released) {
+                            onRelease()
+                        } else {
+                            onCancel()
+                        }
+                    },
+                )
+            },
+        shape = RoundedCornerShape(16.dp),
+        color = if (isRecording) Color(0xFFFDE8DD) else Color(0xFFF7F1E7),
+        border = BorderStroke(1.dp, Color(0xFFE1D6C7)),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Mic,
+                    contentDescription = null,
+                    tint = if (isRecording) Color(0xFFB44D12) else MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = when {
+                        isRecognizing -> "正在识别语音支出"
+                        isRecording -> "松手后发送给模型识别  ${elapsedSeconds.formatAsTimer()}"
+                        else -> "按住说话，自动填写支出"
+                    },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            statusMessage?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            errorMessage?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LlmRawResponseSection(
+    rawResponse: String,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "LLM 回复",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color.White,
+            border = BorderStroke(1.dp, Color(0xFFE1D6C7)),
+        ) {
+            SelectionContainer {
+                Text(
+                    text = rawResponse,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+    }
+}
+
+private fun Int.formatAsTimer(): String {
+    val minutes = this / 60
+    val seconds = this % 60
+    return "%02d:%02d".format(minutes, seconds)
 }
 
 @Composable
@@ -492,7 +664,7 @@ private fun DateSelector(
                         selectedDate.dayOfMonth,
                     ).show()
                 },
-            value = DateFormatter.format(occurredAt),
+            value = DateFormatter.formatWithOptionalTime(occurredAt),
             trailingText = "更改",
         )
     }

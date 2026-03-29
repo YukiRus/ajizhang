@@ -16,6 +16,11 @@ data class TransactionEditorUiState(
     val isExisting: Boolean = false,
     val isLoading: Boolean = true,
     val errorMessage: String? = null,
+    val isVoiceRecording: Boolean = false,
+    val isVoiceRecognizing: Boolean = false,
+    val voiceStatusMessage: String? = null,
+    val voiceErrorMessage: String? = null,
+    val llmRawResponse: String = "",
 )
 
 sealed interface TransactionEditorEvent {

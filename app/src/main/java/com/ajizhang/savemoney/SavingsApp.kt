@@ -14,6 +14,7 @@ import com.ajizhang.savemoney.ui.editor.TransactionEditorViewModel
 import com.ajizhang.savemoney.ui.home.HomeScreen
 import com.ajizhang.savemoney.ui.home.HomeViewModel
 import com.ajizhang.savemoney.ui.navigation.Routes
+import com.ajizhang.savemoney.ui.settings.SettingsViewModel
 import com.ajizhang.savemoney.ui.theme.SaveMoneyTheme
 
 @Composable
@@ -28,8 +29,10 @@ fun SavingsApp() {
             ) {
                 composable(route = Routes.HOME) {
                     val viewModel: HomeViewModel = hiltViewModel()
+                    val settingsViewModel: SettingsViewModel = hiltViewModel()
                     HomeScreen(
                         viewModel = viewModel,
+                        settingsViewModel = settingsViewModel,
                         onAddTransaction = {
                             navController.navigate(Routes.transactionEditor())
                         },

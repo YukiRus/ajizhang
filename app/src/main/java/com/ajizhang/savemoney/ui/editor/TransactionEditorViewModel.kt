@@ -3,12 +3,18 @@ package com.ajizhang.savemoney.ui.editor
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ajizhang.savemoney.data.remote.LlmExpenseRecognizer
 import com.ajizhang.savemoney.data.model.TransactionType
 import com.ajizhang.savemoney.data.repository.CategoryRepository
 import com.ajizhang.savemoney.data.repository.TransactionRepository
+import com.ajizhang.savemoney.data.voice.WavAudioRecorder
 import com.ajizhang.savemoney.ui.navigation.Routes
+import com.ajizhang.savemoney.util.DateFormatter
 import com.ajizhang.savemoney.util.MoneyFormatter
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +32,8 @@ class TransactionEditorViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val categoryRepository: CategoryRepository,
     private val transactionRepository: TransactionRepository,
+    private val audioRecorder: WavAudioRecorder,
+    private val llmExpenseRecognizer: LlmExpenseRecognizer,
 ) : ViewModel() {
     private val transactionId: Long =
         savedStateHandle.get<Long>(Routes.ARG_TRANSACTION_ID) ?: Routes.NEW_TRANSACTION_ID
@@ -101,6 +109,11 @@ class TransactionEditorViewModel @Inject constructor(
                 category = "",
                 refundInput = if (type == TransactionType.EXPENSE) state.refundInput else "",
                 errorMessage = null,
+                isVoiceRecording = false,
+                isVoiceRecognizing = false,
+                voiceStatusMessage = null,
+                voiceErrorMessage = null,
+                llmRawResponse = "",
             )
         }
     }
@@ -135,6 +148,166 @@ class TransactionEditorViewModel @Inject constructor(
         viewModelScope.launch {
             categoryRepository.deleteCategory(uiState.value.type, name)
         }
+    }
+
+    fun startVoiceRecording() {
+        val state = uiState.value
+        if (state.isExisting || state.type != TransactionType.EXPENSE || state.isVoiceRecognizing) {
+            return
+        }
+
+        viewModelScope.launch {
+            audioRecorder.start()
+                .onSuccess {
+                    formState.update {
+                        it.copy(
+                            isVoiceRecording = true,
+                            voiceStatusMessage = "录音中，松手后识别",
+                            voiceErrorMessage = null,
+                            llmRawResponse = "",
+                        )
+                    }
+                }.onFailure { throwable ->
+                    formState.update {
+                        it.copy(
+                            isVoiceRecording = false,
+                            voiceStatusMessage = null,
+                            voiceErrorMessage = throwable.message ?: "无法开始录音",
+                        )
+                    }
+                }
+        }
+    }
+
+    fun stopVoiceRecordingAndRecognize() {
+        if (!uiState.value.isVoiceRecording) {
+            return
+        }
+
+        viewModelScope.launch {
+            val clip = audioRecorder.stop()
+            if (clip == null) {
+                formState.update {
+                    it.copy(
+                        isVoiceRecording = false,
+                        voiceStatusMessage = null,
+                        voiceErrorMessage = "录音失败，请重试",
+                    )
+                }
+                return@launch
+            }
+
+            if (clip.durationMs < 1_000L) {
+                formState.update {
+                    it.copy(
+                        isVoiceRecording = false,
+                        voiceStatusMessage = null,
+                        voiceErrorMessage = "录音时间太短，请至少说 1 秒",
+                    )
+                }
+                return@launch
+            }
+
+            val categories = uiState.value.categories
+            formState.update {
+                it.copy(
+                    isVoiceRecording = false,
+                    isVoiceRecognizing = true,
+                    voiceStatusMessage = "正在识别支出内容...",
+                    voiceErrorMessage = null,
+                    llmRawResponse = "",
+                )
+            }
+
+            llmExpenseRecognizer.recognizeExpense(
+                wavBytes = clip.wavBytes,
+                categories = categories,
+                today = LocalDate.now(),
+                now = LocalDateTime.now(),
+            ).onSuccess { result ->
+                val resolvedCategory = resolveRecognizedCategory(
+                    recognizedCategory = result.category,
+                    categories = categories,
+                    fallbackCategory = uiState.value.category,
+                )
+                formState.update { current ->
+                    val parsedAmount = MoneyFormatter.parseToCents(result.amountText)
+                    val parsedOccurredAt = parseRecognizedOccurredAt(result.dateText, result.timeText)
+                    current.copy(
+                        amountInput = parsedAmount?.let(MoneyFormatter::toInputValue) ?: current.amountInput,
+                        category = resolvedCategory,
+                        note = result.note.ifBlank { current.note },
+                        occurredAt = parsedOccurredAt ?: current.occurredAt,
+                        isVoiceRecognizing = false,
+                        voiceStatusMessage = "已根据语音填写，请确认后保存",
+                        voiceErrorMessage = if (parsedAmount == null) "未识别出有效金额，请手动补充" else null,
+                        llmRawResponse = result.rawResponse,
+                    )
+                }
+            }.onFailure { throwable ->
+                formState.update {
+                    it.copy(
+                        isVoiceRecognizing = false,
+                        voiceStatusMessage = null,
+                        voiceErrorMessage = throwable.message ?: "语音识别失败",
+                        llmRawResponse = "",
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelVoiceRecording() {
+        viewModelScope.launch {
+            audioRecorder.cancel()
+            formState.update {
+                it.copy(
+                    isVoiceRecording = false,
+                    voiceStatusMessage = null,
+                    llmRawResponse = "",
+                )
+            }
+        }
+    }
+
+    private fun resolveRecognizedCategory(
+        recognizedCategory: String,
+        categories: List<String>,
+        fallbackCategory: String,
+    ): String {
+        val trimmed = recognizedCategory.trim()
+        if (trimmed.isBlank()) {
+            return fallbackCategory
+        }
+
+        categories.firstOrNull { it == trimmed }?.let { return it }
+        val normalized = trimmed.normalizeCategory()
+        categories.firstOrNull { it.normalizeCategory() == normalized }?.let { return it }
+        categories.firstOrNull {
+            val candidate = it.normalizeCategory()
+            normalized.contains(candidate) || candidate.contains(normalized)
+        }?.let { return it }
+
+        return fallbackCategory
+    }
+
+    private fun String.normalizeCategory(): String =
+        trim()
+            .replace("支出", "")
+            .replace("消费", "")
+            .replace("分类", "")
+            .replace("类", "")
+            .replace("：", "")
+            .replace(":", "")
+            .replace(" ", "")
+
+    private fun parseRecognizedOccurredAt(
+        dateText: String,
+        timeText: String,
+    ): Long? {
+        val localDate = runCatching { LocalDate.parse(dateText.trim()) }.getOrNull() ?: return null
+        val localTime = runCatching { LocalTime.parse(timeText.trim()) }.getOrNull() ?: LocalTime.MIDNIGHT
+        return DateFormatter.localDateTimeToEpochMillis(LocalDateTime.of(localDate, localTime))
     }
 
     fun save() {
