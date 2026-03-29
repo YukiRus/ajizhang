@@ -2,6 +2,7 @@ package com.ajizhang.savemoney.ui.editor
 
 import android.app.DatePickerDialog
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Arrangement
@@ -20,11 +21,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -45,7 +46,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -77,6 +77,7 @@ fun TransactionEditorScreen(
     }
 
     Scaffold(
+        containerColor = Color.White,
         topBar = {
             TopAppBar(
                 title = {
@@ -91,6 +92,12 @@ fun TransactionEditorScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = viewModel::save) {
+                        Icon(
+                            imageVector = Icons.Rounded.Check,
+                            contentDescription = "保存记录",
+                        )
+                    }
                     if (uiState.isExisting) {
                         IconButton(onClick = { showDeleteDialog = true }) {
                             Icon(
@@ -122,7 +129,6 @@ fun TransactionEditorScreen(
                 onManageCategories = { showCategoryManager = true },
                 onNoteChange = viewModel::onNoteChange,
                 onDateChange = viewModel::onDateChange,
-                onSave = viewModel::save,
                 modifier = Modifier.padding(paddingValues),
             )
         }
@@ -174,93 +180,70 @@ private fun EditorContent(
     onManageCategories: () -> Unit,
     onNoteChange: (String) -> Unit,
     onDateChange: (Long) -> Unit,
-    onSave: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(Color(0xFFF8F3E7), Color(0xFFFDFBF6)),
-                ),
-            )
+            .background(Color.White)
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        ElevatedCard(
+        Text(
+            text = "记录一笔新的现金流",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+        )
+        TypeSelector(
+            selectedType = uiState.type,
+            onTypeChange = onTypeChange,
+        )
+        OutlinedTextField(
+            value = uiState.amountInput,
+            onValueChange = onAmountChange,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Text(
-                    text = "记录一笔新的现金流",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-                TypeSelector(
-                    selectedType = uiState.type,
-                    onTypeChange = onTypeChange,
-                )
-                OutlinedTextField(
-                    value = uiState.amountInput,
-                    onValueChange = onAmountChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("金额") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                )
-                if (uiState.type == TransactionType.EXPENSE) {
-                    OutlinedTextField(
-                        value = uiState.refundInput,
-                        onValueChange = onRefundChange,
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("退款金额") },
-                        supportingText = {
-                            Text("可选。填写后该支出会标记为已退款，并按净支出计入统计。")
-                        },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    )
-                }
-                CategorySelector(
-                    selectedCategory = uiState.category,
-                    categories = uiState.categories,
-                    onCategoryChange = onCategoryChange,
-                    onManageCategories = onManageCategories,
-                )
-                DateSelector(
-                    occurredAt = uiState.occurredAt,
-                    onDateChange = onDateChange,
-                )
-                OutlinedTextField(
-                    value = uiState.note,
-                    onValueChange = onNoteChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("备注") },
-                    minLines = 3,
-                    maxLines = 4,
-                )
-                uiState.errorMessage?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-                TextButton(
-                    onClick = onSave,
-                    modifier = Modifier.align(Alignment.End),
-                ) {
-                    Text("保存记录")
-                }
-            }
+            label = { Text("金额") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        )
+        if (uiState.type == TransactionType.EXPENSE) {
+            OutlinedTextField(
+                value = uiState.refundInput,
+                onValueChange = onRefundChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("退款金额") },
+                supportingText = {
+                    Text("可选。填写后该支出会标记为已退款，并按净支出计入统计。")
+                },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            )
+        }
+        CategorySelector(
+            selectedCategory = uiState.category,
+            categories = uiState.categories,
+            onCategoryChange = onCategoryChange,
+            onManageCategories = onManageCategories,
+        )
+        DateSelector(
+            occurredAt = uiState.occurredAt,
+            onDateChange = onDateChange,
+        )
+        OutlinedTextField(
+            value = uiState.note,
+            onValueChange = onNoteChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("备注") },
+            minLines = 3,
+            maxLines = 4,
+        )
+        uiState.errorMessage?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
     }
 }
@@ -270,7 +253,7 @@ private fun TypeSelector(
     selectedType: TransactionType,
     onTypeChange: (TransactionType) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = "类型",
             style = MaterialTheme.typography.labelLarge,
@@ -300,7 +283,7 @@ private fun CategorySelector(
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = "分类",
             style = MaterialTheme.typography.labelLarge,
@@ -325,23 +308,14 @@ private fun CategorySelector(
             }
         }
         Box {
-            ElevatedCard(
+            FlatSelectorField(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(enabled = categories.isNotEmpty()) { expanded = true },
-                shape = RoundedCornerShape(18.dp),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 18.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(if (selectedCategory.isBlank()) "请先新增分类" else selectedCategory)
-                    Text(if (categories.isEmpty()) "无可选分类" else "选择")
-                }
-            }
+                value = if (selectedCategory.isBlank()) "请先新增分类" else selectedCategory,
+                trailingText = if (categories.isEmpty()) "无可选分类" else "选择",
+                placeholder = selectedCategory.isBlank(),
+            )
             DropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
@@ -380,7 +354,7 @@ private fun CategoryManagerDialog(
             Text(if (type == TransactionType.EXPENSE) "管理支出分类" else "管理收入分类")
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = input,
                     onValueChange = {
@@ -494,13 +468,13 @@ private fun DateSelector(
     val context = LocalContext.current
     val selectedDate = DateFormatter.epochMillisToLocalDate(occurredAt)
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = "日期",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        ElevatedCard(
+        FlatSelectorField(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable {
@@ -518,18 +492,46 @@ private fun DateSelector(
                         selectedDate.dayOfMonth,
                     ).show()
                 },
-            shape = RoundedCornerShape(18.dp),
+            value = DateFormatter.format(occurredAt),
+            trailingText = "更改",
+        )
+    }
+}
+
+@Composable
+private fun FlatSelectorField(
+    value: String,
+    trailingText: String,
+    modifier: Modifier = Modifier,
+    placeholder: Boolean = false,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, Color(0xFFE1D6C7)),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 18.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(DateFormatter.format(occurredAt))
-                Text("更改")
-            }
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (placeholder) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+            )
+            Text(
+                text = trailingText,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
     }
 }

@@ -27,6 +27,7 @@ object AppModule {
         ).addMigrations(
             SavingsDatabase.MIGRATION_1_2,
             SavingsDatabase.MIGRATION_2_3,
+            SavingsDatabase.MIGRATION_3_4,
         ).build()
 
     @Provides

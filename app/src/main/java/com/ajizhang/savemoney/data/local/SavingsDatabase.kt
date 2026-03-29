@@ -16,7 +16,7 @@ import com.ajizhang.savemoney.data.local.entity.TransactionEntity
 
 @Database(
     entities = [GoalEntity::class, InvestmentEntity::class, TransactionEntity::class, CategoryEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -51,6 +51,15 @@ abstract class SavingsDatabase : RoomDatabase() {
                 override fun migrate(database: SupportSQLiteDatabase) {
                     database.execSQL(
                         "ALTER TABLE transactions ADD COLUMN refundedAmount INTEGER NOT NULL DEFAULT 0",
+                    )
+                }
+            }
+
+        val MIGRATION_3_4: Migration =
+            object : Migration(3, 4) {
+                override fun migrate(database: SupportSQLiteDatabase) {
+                    database.execSQL(
+                        "ALTER TABLE goal ADD COLUMN expectedDate INTEGER",
                     )
                 }
             }

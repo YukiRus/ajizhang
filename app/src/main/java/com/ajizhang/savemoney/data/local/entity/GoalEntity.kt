@@ -8,5 +8,6 @@ data class GoalEntity(
     @PrimaryKey val id: Int = 1,
     val name: String,
     val targetAmount: Long,
+    val expectedDate: Long?,
     val updatedAt: Long,
 )

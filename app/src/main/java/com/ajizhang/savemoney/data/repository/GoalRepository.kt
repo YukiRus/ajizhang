@@ -18,15 +18,17 @@ class GoalRepository @Inject constructor(
                 Goal(
                     name = it.name,
                     targetAmount = it.targetAmount,
+                    expectedDate = it.expectedDate,
                 )
             }
         }
 
-    suspend fun saveGoal(name: String, targetAmount: Long, updatedAt: Long) {
+    suspend fun saveGoal(name: String, targetAmount: Long, expectedDate: Long?, updatedAt: Long) {
         goalDao.upsert(
             GoalEntity(
                 name = name,
                 targetAmount = targetAmount,
+                expectedDate = expectedDate,
                 updatedAt = updatedAt,
             ),
         )

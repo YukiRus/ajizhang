@@ -5,8 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.ajizhang.savemoney.data.repository.GoalRepository
 import com.ajizhang.savemoney.data.repository.InvestmentRepository
 import com.ajizhang.savemoney.data.repository.TransactionRepository
+import com.ajizhang.savemoney.domain.GoalPlanningCalculator
 import com.ajizhang.savemoney.domain.SummaryCalculator
+import com.ajizhang.savemoney.util.DateFormatter
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.LocalDate
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -33,14 +36,24 @@ class HomeViewModel @Inject constructor(
             totalExpense = summary.totalExpense,
             investmentAmount = investmentAmount,
         )
+        val plan = goal?.expectedDate?.let { expectedDate ->
+            GoalPlanningCalculator.calculate(
+                remainingAmount = calculated.remainingAmount,
+                today = LocalDate.now(),
+                expectedDate = DateFormatter.epochMillisToLocalDate(expectedDate),
+            )
+        } ?: GoalPlanningCalculator.empty()
 
         HomeUiState(
             goalName = goal?.name.orEmpty(),
             targetAmount = goal?.targetAmount,
+            expectedDate = goal?.expectedDate,
             investmentAmount = investmentAmount,
             depositAmount = calculated.depositAmount,
             savedAmount = calculated.savedAmount,
             remainingAmount = calculated.remainingAmount,
+            recommendedMonthlyAmount = plan.recommendedMonthlyAmount,
+            isExpectedDatePassed = plan.isDeadlinePassed,
             transactions = transactions,
         )
     }.stateIn(
@@ -55,11 +68,12 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun saveGoal(name: String, targetAmount: Long) {
+    fun saveGoal(name: String, targetAmount: Long, expectedDate: Long?) {
         viewModelScope.launch {
             goalRepository.saveGoal(
                 name = name,
                 targetAmount = targetAmount,
+                expectedDate = expectedDate,
                 updatedAt = System.currentTimeMillis(),
             )
         }
@@ -71,6 +85,12 @@ class HomeViewModel @Inject constructor(
                 amount = amount,
                 updatedAt = System.currentTimeMillis(),
             )
+        }
+    }
+
+    fun deleteTransaction(id: Long) {
+        viewModelScope.launch {
+            transactionRepository.deleteTransaction(id)
         }
     }
 }
