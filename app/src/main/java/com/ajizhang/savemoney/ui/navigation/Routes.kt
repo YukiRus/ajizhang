@@ -2,6 +2,7 @@ package com.ajizhang.savemoney.ui.navigation
 
 object Routes {
     const val HOME: String = "home"
+    const val TREND: String = "trend"
     const val ARG_TRANSACTION_ID: String = "transactionId"
     const val NEW_TRANSACTION_ID: Long = -1L
     const val TRANSACTION_EDITOR: String = "transaction_editor"
