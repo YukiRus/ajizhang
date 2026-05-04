@@ -4,6 +4,7 @@ package com.ajizhang.savemoney.data.remote
 
 import android.util.Base64
 import com.ajizhang.savemoney.data.model.ExpenseRecognitionResult
+import com.ajizhang.savemoney.data.model.ImageExpenseRecognitionResult
 import com.ajizhang.savemoney.data.repository.LlmSettingsRepository
 import java.io.BufferedReader
 import java.net.HttpURLConnection
@@ -139,6 +140,131 @@ class LlmExpenseRecognizer @Inject constructor(
                     note = payload.optString("note"),
                     dateText = payload.optString("date"),
                     timeText = payload.optString("time"),
+                    rawResponse = assistantText,
+                )
+            }
+        }
+
+    suspend fun recognizeExpensesFromImage(
+        imageBytes: ByteArray,
+        mimeType: String,
+        categories: List<String>,
+        today: LocalDate,
+        now: LocalDateTime,
+    ): Result<ImageExpenseRecognitionResult> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val settings = settingsRepository.getSettings()
+                require(settings.isComplete) { "请先在设置里填写 API 地址、API Key 和模型名称" }
+
+                val requestUrl = buildChatCompletionsUrl(settings.apiBaseUrl)
+                val categoryJson = JSONArray(categories).toString()
+                val dataUrl = "data:$mimeType;base64,${Base64.encodeToString(imageBytes, Base64.NO_WRAP)}"
+
+                val prompt =
+                    """
+                    你是一个记账助手。请识别这张图片中的所有支出项目，返回一个严格 JSON 数组。
+                    图片可能是一张小票、收据、账单截图或者手写账本照片。
+
+                    category 必须从以下分类中选择一个最接近的，逐字复制，不能改写或新增：
+                    $categoryJson
+                    如果图片中没有明显匹配的分类，使用"其他"。
+
+                    日期默认使用今天：${today}，时间默认用当前时间：${now.toLocalTime()}。
+                    如果图片中有明确的日期或时间，优先使用图片中的信息。
+
+                    每项格式：
+                    {"amount":"金额(元)","category":"分类","note":"简短描述(10字内)","date":"yyyy-MM-dd","time":"HH:mm"}
+
+                    只返回 JSON 数组，不要 markdown，不要解释，不要多余文字。
+                    示例：[{"amount":"12.50","category":"餐饮","note":"午饭","date":"${today}","time":"12:30"}]
+
+                    如果图片中没有任何支出信息，返回空数组 []。
+                    """.trimIndent()
+
+                val requestBody =
+                    JSONObject().apply {
+                        put("model", settings.modelName)
+                        put("temperature", 0.1)
+                        if (isOpenRouterUrl(settings.apiBaseUrl)) {
+                            put(
+                                "reasoning",
+                                JSONObject().apply {
+                                    put("effort", "none")
+                                },
+                            )
+                        }
+                        put(
+                            "messages",
+                            JSONArray().apply {
+                                put(
+                                    JSONObject().apply {
+                                        put("role", "system")
+                                        put("content", "你是一个严格输出 JSON 的中文记账助手。")
+                                    },
+                                )
+                                put(
+                                    JSONObject().apply {
+                                        put("role", "user")
+                                        put(
+                                            "content",
+                                            JSONArray().apply {
+                                                put(
+                                                    JSONObject().apply {
+                                                        put("type", "text")
+                                                        put("text", prompt)
+                                                    },
+                                                )
+                                                put(
+                                                    JSONObject().apply {
+                                                        put("type", "image_url")
+                                                        put(
+                                                            "image_url",
+                                                            JSONObject().apply {
+                                                                put("url", dataUrl)
+                                                            },
+                                                        )
+                                                    },
+                                                )
+                                            },
+                                        )
+                                    },
+                                )
+                            },
+                        )
+                    }
+
+                val connection = (URL(requestUrl).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 20_000
+                    readTimeout = 120_000
+                    doInput = true
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Authorization", "Bearer ${settings.apiKey}")
+                }
+
+                connection.outputStream.use { output ->
+                    output.write(requestBody.toString().toByteArray())
+                }
+
+                val responseCode = connection.responseCode
+                val responseText =
+                    ((if (responseCode in 200..299) connection.inputStream else connection.errorStream)
+                        ?.bufferedReader()
+                        ?.use(BufferedReader::readText)).orEmpty()
+
+                require(responseCode in 200..299) {
+                    parseErrorMessage(responseText).ifBlank { "大模型调用失败($responseCode)" }
+                }
+
+                val assistantText = extractAssistantText(responseText)
+                val items = ImageExpenseParser.parseExpenseArray(
+                    ImageExpenseParser.stripCodeFence(assistantText),
+                )
+
+                ImageExpenseRecognitionResult(
+                    items = items,
                     rawResponse = assistantText,
                 )
             }

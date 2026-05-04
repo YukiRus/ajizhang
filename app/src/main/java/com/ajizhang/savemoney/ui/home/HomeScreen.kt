@@ -1,6 +1,8 @@
 package com.ajizhang.savemoney.ui.home
 
 import android.app.DatePickerDialog
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
@@ -19,31 +21,41 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.NoteAdd
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,68 +67,182 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ajizhang.savemoney.data.model.ImageExpenseRecognitionResult
 import com.ajizhang.savemoney.data.model.TransactionRecord
 import com.ajizhang.savemoney.data.model.TransactionType
+import com.ajizhang.savemoney.data.remote.LlmExpenseRecognizer
 import com.ajizhang.savemoney.ui.settings.SettingsUiState
 import com.ajizhang.savemoney.ui.settings.SettingsViewModel
 import com.ajizhang.savemoney.util.DateFormatter
 import com.ajizhang.savemoney.util.MoneyFormatter
 import java.time.LocalDate
+import java.time.LocalDateTime
+import kotlinx.coroutines.launch
 
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
     settingsViewModel: SettingsViewModel,
+    llmExpenseRecognizer: LlmExpenseRecognizer,
     onAddTransaction: () -> Unit,
     onEditTransaction: (Long) -> Unit,
+    onOpenTrend: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val settingsUiState by settingsViewModel.uiState.collectAsStateWithLifecycle()
     var showGoalDialog by rememberSaveable { mutableStateOf(false) }
     var showInvestmentDialog by rememberSaveable { mutableStateOf(false) }
     var showSettingsDialog by rememberSaveable { mutableStateOf(false) }
+    var showFabMenu by rememberSaveable { mutableStateOf(false) }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        floatingActionButton = {
-            FloatingActionButton(onClick = onAddTransaction) {
-                Icon(
-                    imageVector = Icons.Rounded.Add,
-                    contentDescription = "新增记录",
+    var isRecognizing by remember { mutableStateOf(false) }
+    var imageRecognitionError by remember { mutableStateOf<String?>(null) }
+    var imageRecognitionResult by remember { mutableStateOf<ImageExpenseRecognitionResult?>(null) }
+
+    val imagePickerLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            if (uri == null) return@rememberLauncherForActivityResult
+            isRecognizing = true
+            imageRecognitionError = null
+            coroutineScope.launch {
+                val bytes = runCatching {
+                    context.contentResolver.openInputStream(uri)?.readBytes()
+                }.getOrNull()
+                if (bytes == null) {
+                    isRecognizing = false
+                    imageRecognitionError = "无法读取图片"
+                    return@launch
+                }
+                val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+                llmExpenseRecognizer.recognizeExpensesFromImage(
+                    imageBytes = bytes,
+                    mimeType = mimeType,
+                    categories = uiState.expenseCategories,
+                    today = LocalDate.now(),
+                    now = LocalDateTime.now(),
+                ).onSuccess { result ->
+                    imageRecognitionResult = result
+                    isRecognizing = false
+                }.onFailure { error ->
+                    isRecognizing = false
+                    imageRecognitionError = error.message ?: "图片识别失败"
+                }
+            }
+        }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            HomeDrawer(
+                onOpenTrend = {
+                    coroutineScope.launch {
+                        drawerState.close()
+                        onOpenTrend()
+                    }
+                },
+                onOpenSettings = {
+                    coroutineScope.launch {
+                        drawerState.close()
+                        showSettingsDialog = true
+                    }
+                },
+            )
+        },
+    ) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            floatingActionButton = {
+                Box {
+                    FloatingActionButton(onClick = { showFabMenu = true }) {
+                        Icon(
+                            imageVector = Icons.Rounded.Add,
+                            contentDescription = "新增记录",
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showFabMenu,
+                        onDismissRequest = { showFabMenu = false },
+                        offset = DpOffset(0.dp, (-8).dp),
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Rounded.NoteAdd,
+                                        contentDescription = null,
+                                    )
+                                    Text("添加一条")
+                                }
+                            },
+                            onClick = {
+                                showFabMenu = false
+                                onAddTransaction()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Image,
+                                        contentDescription = null,
+                                    )
+                                    Text("图片添加")
+                                }
+                            },
+                            onClick = {
+                                showFabMenu = false
+                                imagePickerLauncher.launch("image/*")
+                            },
+                        )
+                    }
+                }
+            },
+        ) { paddingValues ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(Color(0xFFF8F3E7), Color(0xFFFDFBF6)),
+                        ),
+                    )
+                    .padding(paddingValues)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                GoalSection(
+                    uiState = uiState,
+                    onEditGoal = { showGoalDialog = true },
+                    onOpenMenu = {
+                        coroutineScope.launch {
+                            drawerState.open()
+                        }
+                    },
+                )
+                BalancesSection(
+                    investmentAmount = uiState.investmentAmount,
+                    depositAmount = uiState.depositAmount,
+                    onEditInvestment = { showInvestmentDialog = true },
+                )
+                TransactionSection(
+                    transactions = uiState.transactions,
+                    onEditTransaction = onEditTransaction,
+                    onDeleteTransaction = viewModel::deleteTransaction,
+                    modifier = Modifier.weight(1f),
                 )
             }
-        },
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color(0xFFF8F3E7), Color(0xFFFDFBF6)),
-                    ),
-                )
-                .padding(paddingValues)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            GoalSection(
-                uiState = uiState,
-                onEditGoal = { showGoalDialog = true },
-                onOpenSettings = { showSettingsDialog = true },
-            )
-            BalancesSection(
-                investmentAmount = uiState.investmentAmount,
-                depositAmount = uiState.depositAmount,
-                onEditInvestment = { showInvestmentDialog = true },
-            )
-            TransactionSection(
-                transactions = uiState.transactions,
-                onEditTransaction = onEditTransaction,
-                onDeleteTransaction = viewModel::deleteTransaction,
-                modifier = Modifier.weight(1f),
-            )
         }
     }
 
@@ -157,6 +283,49 @@ fun HomeScreen(
             },
         )
     }
+
+    if (isRecognizing) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("正在识别图片") },
+            text = {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.padding(4.dp))
+                    Text("正在发送图片到大模型进行识别...")
+                }
+            },
+            confirmButton = {},
+        )
+    }
+
+    imageRecognitionError?.let { error ->
+        AlertDialog(
+            onDismissRequest = { imageRecognitionError = null },
+            title = { Text("识别失败") },
+            text = { Text(error) },
+            confirmButton = {
+                TextButton(onClick = { imageRecognitionError = null }) {
+                    Text("确定")
+                }
+            },
+        )
+    }
+
+    imageRecognitionResult?.let { result ->
+        ImageExpenseDialog(
+            items = result.items,
+            categories = uiState.expenseCategories,
+            rawLlmResponse = result.rawResponse,
+            onDismiss = { imageRecognitionResult = null },
+            onSave = { editedItems ->
+                viewModel.saveRecognizedExpenses(editedItems)
+                imageRecognitionResult = null
+            },
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -164,7 +333,7 @@ fun HomeScreen(
 private fun GoalSection(
     uiState: HomeUiState,
     onEditGoal: () -> Unit,
-    onOpenSettings: () -> Unit,
+    onOpenMenu: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -211,14 +380,14 @@ private fun GoalSection(
                     GoalRecommendationText(uiState = uiState)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(
-                            imageVector = Icons.Rounded.Settings,
-                            contentDescription = "打开设置",
-                        )
-                    }
                     TextButton(onClick = onEditGoal) {
                         Text(if (uiState.hasGoal) "编辑目标" else "设置目标")
+                    }
+                    IconButton(onClick = onOpenMenu) {
+                        Icon(
+                            imageVector = Icons.Rounded.Menu,
+                            contentDescription = "打开菜单",
+                        )
                     }
                 }
             }
@@ -234,6 +403,85 @@ private fun GoalSection(
                 accentColor = Color(0xFFCC5A17),
             )
         }
+    }
+}
+
+@Composable
+private fun HomeDrawer(
+    onOpenTrend: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    ModalDrawerSheet(
+        drawerContainerColor = Color(0xFFFDFBF6),
+        modifier = Modifier.width(280.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color(0xFFF8F3E7), Color(0xFFFDFBF6)),
+                    ),
+                )
+                .padding(horizontal = 16.dp, vertical = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.dp, Color(0xFFE9DFCF)),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "菜单",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "查看趋势或调整模型设置",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            DrawerMenuItem(
+                text = "趋势图",
+                onClick = onOpenTrend,
+            )
+            DrawerMenuItem(
+                text = "设置",
+                onClick = onOpenSettings,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DrawerMenuItem(
+    text: String,
+    onClick: () -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFE9DFCF)),
+        shape = RoundedCornerShape(18.dp),
+    ) {
+        NavigationDrawerItem(
+            label = {
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            },
+            selected = false,
+            onClick = onClick,
+            modifier = Modifier.padding(4.dp),
+        )
     }
 }
 

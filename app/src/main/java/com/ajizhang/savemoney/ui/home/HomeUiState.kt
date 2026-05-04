@@ -13,6 +13,7 @@ data class HomeUiState(
     val recommendedMonthlyAmount: Long? = null,
     val isExpectedDatePassed: Boolean = false,
     val transactions: List<TransactionRecord> = emptyList(),
+    val expenseCategories: List<String> = emptyList(),
 ) {
     val hasGoal: Boolean
         get() = targetAmount != null
