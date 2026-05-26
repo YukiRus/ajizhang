@@ -1,61 +1,99 @@
-# Save Money
+# 攒钱记账
 
-- 全部AI写得，含人量为0
-- 感受威胁
-- 总之很适合我自己
-- 因为含人量为0%，所以许可证是你他妈想干嘛就干嘛许可证。
-- 感谢看我的废话。
-- 以上是人写得
-- 就这样
-- 以下是ai写得
+一个使用 Kotlin 和 Jetpack Compose 编写的原生 Android 个人记账应用。项目围绕“攒钱目标”组织日常收支、存款、投资、预算和趋势统计，并支持通过兼容 OpenAI Chat Completions 的大模型接口辅助录入支出。
 
-## 中文简介
+## 功能概览
 
-`Save Money` 是一个使用 Kotlin 开发的原生 Android 攒钱记账应用，面向个人日常收支、储蓄目标和投资记录管理。
+- 攒钱目标：设置目标名称、目标金额和预计完成日期，自动计算已攒金额、剩余金额和建议月攒金额。
+- 收支记录：记录收入和支出，支持金额、分类、日期、备注、退款金额和编辑删除。
+- 分类管理：收入和支出分类可在录入页维护，并提供默认分类初始化。
+- 月度预算：设置每月总预算，添加子预算，查看子预算已用、剩余和关联支出明细。
+- 预算复制：可将当前月份的子预算结构复制到其他月份。
+- 趋势分析：按月、季度、年份查看收入、支出、净结余折线趋势，并支持排除指定支出分类。
+- 投资余额：单独维护投资金额，投资和存款共同计入已攒金额。
+- 智能录入：支持按住说话识别支出，也支持从图片、小票、账单截图中识别多笔支出。
+- 本地持久化：核心数据存储在 Room / SQLite，模型设置存储在 DataStore。
 
-当前项目主要特性：
+## 技术栈
 
-- 以攒钱目标为核心，展示目标金额、已攒金额、还差金额和预计完成时间
-- 投资与存款分开展示，其中投资计入总已攒金额
-- 收支明细支持按月、季度、年份分组查看
-- 支持退款记录，支出可标记退款金额并参与净支出统计
-- 分类可由用户自行增删，并提供默认分类
-- 数据本地持久化，基于 Room / SQLite
-- 提供兼容 OpenAI 接口的大模型设置，可在新增支出时通过语音识别辅助填写表单
-
-技术栈：
-
-- Kotlin
-- Jetpack Compose
-- Material 3
+- Kotlin 2.0
+- Android Gradle Plugin 8.7
+- Jetpack Compose + Material 3
+- Navigation Compose
 - Hilt
 - Room / SQLite
-- DataStore
+- DataStore Preferences
+- Kotlin Coroutines / Flow
+- JUnit4 + Truth
 
-## English
+## 项目结构
 
-`Save Money` is a native Android savings and expense tracking app built with Kotlin. It is designed for personal finance tracking around saving goals, investments, deposits, and daily income/expense records.
+```text
+app/src/main/java/com/ajizhang/savemoney/
+├── data/
+│   ├── local/          # Room 数据库、DAO、Entity、类型转换
+│   ├── model/          # UI 与仓储层使用的数据模型
+│   ├── remote/         # 大模型语音/图片识别请求与响应解析
+│   ├── repository/     # 目标、交易、预算、分类、投资、设置仓储
+│   └── voice/          # WAV 录音封装
+├── di/                 # Hilt 依赖注入模块
+├── domain/             # 汇总、趋势、目标计划计算逻辑
+├── ui/
+│   ├── budget/         # 月度预算与子预算页面
+│   ├── editor/         # 收支录入与编辑页面
+│   ├── home/           # 首页、目标、余额、交易列表、设置弹窗
+│   ├── navigation/     # 路由定义
+│   ├── settings/       # 大模型设置状态
+│   ├── theme/          # Compose 主题
+│   └── trend/          # 收支趋势页面
+└── util/               # 金额、日期、分类等工具
+```
 
-Current features include:
+## 运行要求
 
-- Goal-first dashboard showing target amount, saved amount, remaining amount, and expected completion time
-- Separate investment and deposit sections, with investment included in total saved amount
-- Transaction list grouped by month, quarter, or year
-- Refund support for expenses, with refunded amount tracked in net spending
-- User-manageable categories with built-in defaults
-- Local persistence powered by Room / SQLite
-- OpenAI-compatible LLM settings for voice-assisted expense entry on new expense records
+- Android Studio Ladybug 或更新版本
+- JDK 17
+- Android SDK 35
+- 最低运行系统：Android 8.0，API 26
 
-Tech stack:
+## 构建与测试
 
-- Kotlin
-- Jetpack Compose
-- Material 3
-- Hilt
-- Room / SQLite
-- DataStore
+在项目根目录执行：
+
+```powershell
+.\gradlew.bat test
+.\gradlew.bat assembleDebug
+```
+
+如果在类 Unix 环境中运行：
+
+```bash
+./gradlew test
+./gradlew assembleDebug
+```
+
+## 大模型识别配置
+
+应用内打开“设置”后填写：
+
+- API 地址：兼容 Chat Completions 的服务地址，例如 `https://api.example.com/v1`
+- API Key：Bearer token
+- 模型名称：服务端支持的模型 ID
+
+代码会自动把 API 地址补全到 `/chat/completions`。语音识别会发送 WAV 音频；图片识别会发送 base64 data URL。接口需要支持 `input_audio` 或 `image_url` 这类多模态消息内容。
+
+## 数据说明
+
+- 交易金额以“分”为内部单位保存，界面按元展示。
+- 退款金额只用于支出记录，统计时按 `支出金额 - 退款金额` 计算净支出。
+- 子预算通过 `subBudgetId` 与支出记录关联，删除子预算时会解除已有交易关联。
+- Room 数据库当前版本为 5，包含目标、投资、交易、分类、月度预算和子预算表。
+
+## 权限
+
+- `INTERNET`：调用大模型接口。
+- `RECORD_AUDIO`：录制语音支出。
 
 ## License
 
 This project is licensed under the WTFPL.
-
