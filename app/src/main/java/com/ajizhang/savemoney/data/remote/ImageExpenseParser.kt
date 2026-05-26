@@ -49,6 +49,7 @@ object ImageExpenseParser {
         var note = ""
         var dateText = ""
         var timeText = ""
+        var budgetSubName = ""
 
         while (pos < len) {
             skipWhitespace(chars, pos, len).also { pos = it }
@@ -59,6 +60,7 @@ object ImageExpenseParser {
                 note = note,
                 dateText = dateText,
                 timeText = timeText,
+                budgetSubName = budgetSubName,
             ) to (pos + 1)
 
             if (chars[pos] == '"') {
@@ -86,6 +88,7 @@ object ImageExpenseParser {
                         "note" -> note = value
                         "date" -> dateText = value
                         "time" -> timeText = value
+                        "budgetSubName" -> budgetSubName = value
                     }
                 } else {
                     skipValue(chars, pos, len).also { pos = it }
@@ -101,6 +104,7 @@ object ImageExpenseParser {
             note = note,
             dateText = dateText,
             timeText = timeText,
+            budgetSubName = budgetSubName,
         ) to pos
     }
 

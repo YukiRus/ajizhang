@@ -10,4 +10,5 @@ data class TransactionRecord(
     val occurredAt: Long,
     val createdAt: Long,
     val updatedAt: Long,
+    val subBudgetId: Long? = null,
 )

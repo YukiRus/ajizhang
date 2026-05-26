@@ -124,6 +124,7 @@ fun HomeScreen(
                     imageBytes = bytes,
                     mimeType = mimeType,
                     categories = uiState.expenseCategories,
+                    subBudgetNames = uiState.subBudgetOptions.map { it.name },
                     today = LocalDate.now(),
                     now = LocalDateTime.now(),
                 ).onSuccess { result ->
@@ -318,6 +319,7 @@ fun HomeScreen(
         ImageExpenseDialog(
             items = result.items,
             categories = uiState.expenseCategories,
+            subBudgets = uiState.subBudgetOptions,
             rawLlmResponse = result.rawResponse,
             onDismiss = { imageRecognitionResult = null },
             onSave = { editedItems ->

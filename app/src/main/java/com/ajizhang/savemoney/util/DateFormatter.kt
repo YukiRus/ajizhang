@@ -11,6 +11,12 @@ object DateFormatter {
     private val zoneId: ZoneId = ZoneId.systemDefault()
     private val formatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
     private val dateTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+    private val monthKeyFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM")
+
+    fun currentMonthKey(): String = LocalDate.now().format(monthKeyFormatter)
+
+    fun monthKeyToLocalDate(monthKey: String): LocalDate =
+        java.time.YearMonth.parse(monthKey, monthKeyFormatter).atDay(1)
 
     fun todayEpochMillis(): Long = localDateToEpochMillis(LocalDate.now())
 

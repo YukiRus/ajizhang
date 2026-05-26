@@ -4,7 +4,9 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ajizhang.savemoney.data.remote.LlmExpenseRecognizer
+import com.ajizhang.savemoney.data.model.SubBudget
 import com.ajizhang.savemoney.data.model.TransactionType
+import com.ajizhang.savemoney.data.repository.BudgetRepository
 import com.ajizhang.savemoney.data.repository.CategoryRepository
 import com.ajizhang.savemoney.data.repository.TransactionRepository
 import com.ajizhang.savemoney.data.voice.WavAudioRecorder
@@ -21,17 +23,23 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class TransactionEditorViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val categoryRepository: CategoryRepository,
     private val transactionRepository: TransactionRepository,
+    private val budgetRepository: BudgetRepository,
     private val audioRecorder: WavAudioRecorder,
     private val llmExpenseRecognizer: LlmExpenseRecognizer,
 ) : ViewModel() {
@@ -39,10 +47,23 @@ class TransactionEditorViewModel @Inject constructor(
         savedStateHandle.get<Long>(Routes.ARG_TRANSACTION_ID) ?: Routes.NEW_TRANSACTION_ID
 
     private val formState = MutableStateFlow(TransactionEditorUiState())
+
+    private val currentMonthKey = DateFormatter.currentMonthKey()
+    private val subBudgetsFlow: Flow<List<SubBudget>> =
+        budgetRepository.observeBudgetByMonth(currentMonthKey)
+            .flatMapLatest { budget ->
+                if (budget != null) {
+                    budgetRepository.observeSubBudgets(budget.id)
+                } else {
+                    flowOf(emptyList())
+                }
+            }
+
     val uiState: StateFlow<TransactionEditorUiState> = combine(
         formState,
         categoryRepository.observeAllCategories(),
-    ) { state, categoryMap ->
+        subBudgetsFlow,
+    ) { state, categoryMap, subBudgets ->
         val managedCategories = categoryMap[state.type].orEmpty()
         val resolvedCategory = when {
             state.category in managedCategories -> state.category
@@ -60,6 +81,7 @@ class TransactionEditorViewModel @Inject constructor(
         state.copy(
             category = resolvedCategory,
             categories = visibleCategories,
+            subBudgetOptions = subBudgets,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -92,6 +114,7 @@ class TransactionEditorViewModel @Inject constructor(
                             note = transaction.note,
                             occurredAt = transaction.occurredAt,
                             createdAt = transaction.createdAt,
+                            subBudgetId = transaction.subBudgetId,
                             isExisting = true,
                             isLoading = false,
                             errorMessage = null,
@@ -136,6 +159,10 @@ class TransactionEditorViewModel @Inject constructor(
 
     fun onDateChange(occurredAt: Long) {
         formState.update { it.copy(occurredAt = occurredAt, errorMessage = null) }
+    }
+
+    fun onSubBudgetChange(subBudgetId: Long?) {
+        formState.update { it.copy(subBudgetId = subBudgetId, errorMessage = null) }
     }
 
     fun addCategory(name: String) {
@@ -209,6 +236,8 @@ class TransactionEditorViewModel @Inject constructor(
             }
 
             val categories = uiState.value.categories
+            val subBudgets = uiState.value.subBudgetOptions
+            val subBudgetNames = subBudgets.map { it.name }
             formState.update {
                 it.copy(
                     isVoiceRecording = false,
@@ -222,6 +251,7 @@ class TransactionEditorViewModel @Inject constructor(
             llmExpenseRecognizer.recognizeExpense(
                 wavBytes = clip.wavBytes,
                 categories = categories,
+                subBudgetNames = subBudgetNames,
                 today = LocalDate.now(),
                 now = LocalDateTime.now(),
             ).onSuccess { result ->
@@ -233,11 +263,15 @@ class TransactionEditorViewModel @Inject constructor(
                 formState.update { current ->
                     val parsedAmount = MoneyFormatter.parseToCents(result.amountText)
                     val parsedOccurredAt = parseRecognizedOccurredAt(result.dateText, result.timeText)
+                    val resolvedSubBudgetId = subBudgets
+                        .firstOrNull { it.name == result.budgetSubName.trim() }
+                        ?.id
                     current.copy(
                         amountInput = parsedAmount?.let(MoneyFormatter::toInputValue) ?: current.amountInput,
                         category = resolvedCategory,
                         note = result.note.ifBlank { current.note },
                         occurredAt = parsedOccurredAt ?: current.occurredAt,
+                        subBudgetId = resolvedSubBudgetId ?: current.subBudgetId,
                         isVoiceRecognizing = false,
                         voiceStatusMessage = "已根据语音填写，请确认后保存",
                         voiceErrorMessage = if (parsedAmount == null) "未识别出有效金额，请手动补充" else null,
@@ -354,6 +388,7 @@ class TransactionEditorViewModel @Inject constructor(
                 occurredAt = state.occurredAt,
                 createdAt = if (state.isExisting) state.createdAt else now,
                 updatedAt = now,
+                subBudgetId = if (state.type == TransactionType.EXPENSE) state.subBudgetId else null,
             )
             _events.emit(TransactionEditorEvent.Saved)
         }

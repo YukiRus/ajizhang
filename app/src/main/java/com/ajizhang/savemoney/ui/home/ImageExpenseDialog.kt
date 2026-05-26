@@ -42,6 +42,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.ajizhang.savemoney.data.model.SubBudget
 import com.ajizhang.savemoney.data.model.RecognizedExpenseItem
 import com.ajizhang.savemoney.util.MoneyFormatter
 import java.util.UUID
@@ -53,12 +54,14 @@ private data class EditableItem(
     val note: String,
     val dateText: String,
     val timeText: String,
+    val budgetSubName: String = "",
 )
 
 @Composable
 fun ImageExpenseDialog(
     items: List<RecognizedExpenseItem>,
     categories: List<String>,
+    subBudgets: List<SubBudget> = emptyList(),
     rawLlmResponse: String,
     onDismiss: () -> Unit,
     onSave: (List<RecognizedExpenseItem>) -> Unit,
@@ -74,6 +77,7 @@ fun ImageExpenseDialog(
                         note = it.note,
                         dateText = it.dateText,
                         timeText = it.timeText,
+                        budgetSubName = it.budgetSubName,
                     )
                 },
             )
@@ -141,6 +145,7 @@ fun ImageExpenseDialog(
                             ExpenseEditCard(
                                 item = item,
                                 categories = categories,
+                                subBudgets = subBudgets,
                                 onUpdate = { updated ->
                                     editableItems[index] = updated
                                 },
@@ -197,6 +202,7 @@ fun ImageExpenseDialog(
                                     note = it.note,
                                     dateText = it.dateText,
                                     timeText = it.timeText,
+                                    budgetSubName = it.budgetSubName,
                                 )
                             }
                             onSave(result)
@@ -217,10 +223,12 @@ fun ImageExpenseDialog(
 private fun ExpenseEditCard(
     item: EditableItem,
     categories: List<String>,
+    subBudgets: List<SubBudget> = emptyList(),
     onUpdate: (EditableItem) -> Unit,
     onDelete: () -> Unit,
 ) {
     var categoryExpanded by remember { mutableStateOf(false) }
+    var budgetExpanded by remember { mutableStateOf(false) }
     var amountInput by remember(item.uid) { mutableStateOf(item.amountText) }
     var noteInput by remember(item.uid) { mutableStateOf(item.note) }
     var dateInput by remember(item.uid) { mutableStateOf(item.dateText) }
@@ -315,6 +323,62 @@ private fun ExpenseEditCard(
                                 onUpdate(item.copy(category = cat))
                             },
                         )
+                    }
+                }
+            }
+
+            if (subBudgets.isNotEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { budgetExpanded = true },
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.White,
+                        border = BorderStroke(1.dp, Color(0xFFE1D6C7)),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = if (item.budgetSubName.isBlank()) "不关联预算" else "预算: ${item.budgetSubName}",
+                                color = if (item.budgetSubName.isBlank()) {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                            )
+                            Text(
+                                text = "选择",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = budgetExpanded,
+                        onDismissRequest = { budgetExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("不关联预算") },
+                            onClick = {
+                                budgetExpanded = false
+                                onUpdate(item.copy(budgetSubName = ""))
+                            },
+                        )
+                        subBudgets.forEach { sub ->
+                            DropdownMenuItem(
+                                text = { Text(sub.name) },
+                                onClick = {
+                                    budgetExpanded = false
+                                    onUpdate(item.copy(budgetSubName = sub.name))
+                                },
+                            )
+                        }
                     }
                 }
             }

@@ -62,6 +62,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ajizhang.savemoney.data.model.SubBudget
 import com.ajizhang.savemoney.data.model.TransactionType
 import com.ajizhang.savemoney.util.DateFormatter
 import java.time.LocalDate
@@ -147,6 +148,7 @@ fun TransactionEditorScreen(
                 onManageCategories = { showCategoryManager = true },
                 onNoteChange = viewModel::onNoteChange,
                 onDateChange = viewModel::onDateChange,
+                onSubBudgetChange = viewModel::onSubBudgetChange,
                 onVoicePress = {
                     val hasPermission =
                         ContextCompat.checkSelfPermission(
@@ -212,6 +214,7 @@ private fun EditorContent(
     onManageCategories: () -> Unit,
     onNoteChange: (String) -> Unit,
     onDateChange: (Long) -> Unit,
+    onSubBudgetChange: (Long?) -> Unit,
     onVoicePress: () -> Unit,
     onVoiceRelease: () -> Unit,
     onVoiceCancel: () -> Unit,
@@ -277,6 +280,13 @@ private fun EditorContent(
             onCategoryChange = onCategoryChange,
             onManageCategories = onManageCategories,
         )
+        if (uiState.type == TransactionType.EXPENSE) {
+            SubBudgetSelector(
+                subBudgetId = uiState.subBudgetId,
+                subBudgets = uiState.subBudgetOptions,
+                onSubBudgetChange = onSubBudgetChange,
+            )
+        }
         DateSelector(
             occurredAt = uiState.occurredAt,
             onDateChange = onDateChange,
@@ -506,6 +516,55 @@ private fun CategorySelector(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SubBudgetSelector(
+    subBudgetId: Long?,
+    subBudgets: List<SubBudget>,
+    onSubBudgetChange: (Long?) -> Unit,
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val selectedName = subBudgets.find { it.id == subBudgetId }?.name ?: ""
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "关联预算（可选）",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Box {
+            FlatSelectorField(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = true },
+                value = if (selectedName.isBlank()) "不关联预算" else selectedName,
+                trailingText = "选择",
+                placeholder = selectedName.isBlank(),
+            )
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("不关联预算") },
+                    onClick = {
+                        expanded = false
+                        onSubBudgetChange(null)
+                    },
+                )
+                subBudgets.forEach { sub ->
+                    DropdownMenuItem(
+                        text = { Text(sub.name) },
+                        onClick = {
+                            expanded = false
+                            onSubBudgetChange(sub.id)
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CategoryManagerDialog(

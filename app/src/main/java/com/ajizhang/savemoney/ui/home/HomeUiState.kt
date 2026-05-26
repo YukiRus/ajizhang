@@ -1,5 +1,6 @@
 package com.ajizhang.savemoney.ui.home
 
+import com.ajizhang.savemoney.data.model.SubBudget
 import com.ajizhang.savemoney.data.model.TransactionRecord
 
 data class HomeUiState(
@@ -14,6 +15,7 @@ data class HomeUiState(
     val isExpectedDatePassed: Boolean = false,
     val transactions: List<TransactionRecord> = emptyList(),
     val expenseCategories: List<String> = emptyList(),
+    val subBudgetOptions: List<SubBudget> = emptyList(),
 ) {
     val hasGoal: Boolean
         get() = targetAmount != null

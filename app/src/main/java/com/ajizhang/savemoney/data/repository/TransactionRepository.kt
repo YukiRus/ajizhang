@@ -33,6 +33,7 @@ class TransactionRepository @Inject constructor(
         occurredAt: Long,
         createdAt: Long,
         updatedAt: Long,
+        subBudgetId: Long? = null,
     ) {
         transactionDao.upsert(
             TransactionEntity(
@@ -45,6 +46,7 @@ class TransactionRepository @Inject constructor(
                 occurredAt = occurredAt,
                 createdAt = createdAt,
                 updatedAt = updatedAt,
+                subBudgetId = subBudgetId,
             ),
         )
     }
@@ -52,6 +54,16 @@ class TransactionRepository @Inject constructor(
     suspend fun deleteTransaction(id: Long) {
         val transaction = transactionDao.getTransactionById(id) ?: return
         transactionDao.delete(transaction)
+    }
+
+    suspend fun getTransactionsBySubBudgetId(subBudgetId: Long): List<TransactionRecord> =
+        transactionDao.getBySubBudgetId(subBudgetId).map { it.toModel() }
+
+    suspend fun sumSpentBySubBudgetId(subBudgetId: Long): Long =
+        transactionDao.sumSpentBySubBudgetId(subBudgetId)
+
+    suspend fun unlinkSubBudget(subBudgetId: Long) {
+        transactionDao.unlinkSubBudget(subBudgetId)
     }
 
     private fun TransactionEntity.toModel(): TransactionRecord =
@@ -65,5 +77,6 @@ class TransactionRepository @Inject constructor(
             occurredAt = occurredAt,
             createdAt = createdAt,
             updatedAt = updatedAt,
+            subBudgetId = subBudgetId,
         )
 }

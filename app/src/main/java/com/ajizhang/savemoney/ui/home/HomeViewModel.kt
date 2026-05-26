@@ -3,7 +3,9 @@ package com.ajizhang.savemoney.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ajizhang.savemoney.data.model.RecognizedExpenseItem
+import com.ajizhang.savemoney.data.model.SubBudget
 import com.ajizhang.savemoney.data.model.TransactionType
+import com.ajizhang.savemoney.data.repository.BudgetRepository
 import com.ajizhang.savemoney.data.repository.CategoryRepository
 import com.ajizhang.savemoney.data.repository.GoalRepository
 import com.ajizhang.savemoney.data.repository.InvestmentRepository
@@ -17,27 +19,51 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import javax.inject.Inject
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val goalRepository: GoalRepository,
     private val investmentRepository: InvestmentRepository,
     private val transactionRepository: TransactionRepository,
     private val categoryRepository: CategoryRepository,
+    private val budgetRepository: BudgetRepository,
 ) : ViewModel() {
-    // 首页只消费一个聚合后的状态，数据库字段变化由这里统一折叠成界面模型。
+    private val currentMonthKey = DateFormatter.currentMonthKey()
+    private val subBudgetsFlow =
+        budgetRepository.observeBudgetByMonth(currentMonthKey)
+            .flatMapLatest { budget ->
+                if (budget != null) {
+                    budgetRepository.observeSubBudgets(budget.id)
+                } else {
+                    flowOf(emptyList())
+                }
+            }
+
     val uiState: StateFlow<HomeUiState> = combine(
-        goalRepository.observeGoal(),
-        investmentRepository.observeInvestmentAmount(),
-        transactionRepository.observeSummary(),
-        transactionRepository.observeTransactions(),
-        categoryRepository.observeAllCategories(),
-    ) { goal, investmentAmount, summary, transactions, categoryMap ->
+        combine(
+            goalRepository.observeGoal(),
+            investmentRepository.observeInvestmentAmount(),
+            transactionRepository.observeSummary(),
+            transactionRepository.observeTransactions(),
+            categoryRepository.observeAllCategories(),
+        ) { goal, investmentAmount, summary, transactions, categoryMap ->
+            goal to Pair(investmentAmount, Pair(summary, Pair(transactions, categoryMap)))
+        },
+        subBudgetsFlow,
+    ) { combined, subBudgets ->
+        val (goal, inner) = combined
+        val (investmentAmount, inner2) = inner
+        val (summary, inner3) = inner2
+        val (transactions, categoryMap) = inner3
         val calculated = SummaryCalculator.calculate(
             targetAmount = goal?.targetAmount,
             totalIncome = summary.totalIncome,
@@ -64,6 +90,7 @@ class HomeViewModel @Inject constructor(
             isExpectedDatePassed = plan.isDeadlinePassed,
             transactions = transactions,
             expenseCategories = categoryMap[TransactionType.EXPENSE].orEmpty(),
+            subBudgetOptions = subBudgets,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -107,6 +134,7 @@ class HomeViewModel @Inject constructor(
     fun saveRecognizedExpenses(items: List<RecognizedExpenseItem>) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
+            val subBudgets = uiState.value.subBudgetOptions
             items.forEach { item ->
                 val amountInCents = MoneyFormatter.parseToCents(item.amountText) ?: return@forEach
                 if (amountInCents <= 0L) return@forEach
@@ -119,6 +147,10 @@ class HomeViewModel @Inject constructor(
                     LocalDateTime.of(localDate, localTime),
                 )
 
+                val resolvedSubBudgetId = subBudgets
+                    .firstOrNull { it.name == item.budgetSubName.trim() }
+                    ?.id
+
                 transactionRepository.saveTransaction(
                     id = 0L,
                     type = TransactionType.EXPENSE,
@@ -129,6 +161,7 @@ class HomeViewModel @Inject constructor(
                     occurredAt = occurredAt,
                     createdAt = now,
                     updatedAt = now,
+                    subBudgetId = resolvedSubBudgetId,
                 )
             }
         }

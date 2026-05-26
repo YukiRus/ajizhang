@@ -6,5 +6,6 @@ data class ExpenseRecognitionResult(
     val note: String,
     val dateText: String,
     val timeText: String,
+    val budgetSubName: String = "",
     val rawResponse: String,
 )

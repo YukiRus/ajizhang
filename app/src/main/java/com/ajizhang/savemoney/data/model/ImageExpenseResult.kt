@@ -6,6 +6,7 @@ data class RecognizedExpenseItem(
     val note: String,
     val dateText: String,
     val timeText: String,
+    val budgetSubName: String = "",
 )
 
 data class ImageExpenseRecognitionResult(

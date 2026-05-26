@@ -1,5 +1,6 @@
 package com.ajizhang.savemoney.ui.editor
 
+import com.ajizhang.savemoney.data.model.SubBudget
 import com.ajizhang.savemoney.data.model.TransactionType
 import com.ajizhang.savemoney.util.DateFormatter
 
@@ -21,6 +22,8 @@ data class TransactionEditorUiState(
     val voiceStatusMessage: String? = null,
     val voiceErrorMessage: String? = null,
     val llmRawResponse: String = "",
+    val subBudgetId: Long? = null,
+    val subBudgetOptions: List<SubBudget> = emptyList(),
 )
 
 sealed interface TransactionEditorEvent {

@@ -3,9 +3,11 @@ package com.ajizhang.savemoney.di
 import android.content.Context
 import androidx.room.Room
 import com.ajizhang.savemoney.data.local.SavingsDatabase
+import com.ajizhang.savemoney.data.local.dao.BudgetDao
 import com.ajizhang.savemoney.data.local.dao.CategoryDao
 import com.ajizhang.savemoney.data.local.dao.GoalDao
 import com.ajizhang.savemoney.data.local.dao.InvestmentDao
+import com.ajizhang.savemoney.data.local.dao.SubBudgetDao
 import com.ajizhang.savemoney.data.local.dao.TransactionDao
 import dagger.Module
 import dagger.Provides
@@ -28,6 +30,7 @@ object AppModule {
             SavingsDatabase.MIGRATION_1_2,
             SavingsDatabase.MIGRATION_2_3,
             SavingsDatabase.MIGRATION_3_4,
+            SavingsDatabase.MIGRATION_4_5,
         ).build()
 
     @Provides
@@ -41,4 +44,10 @@ object AppModule {
 
     @Provides
     fun provideTransactionDao(database: SavingsDatabase): TransactionDao = database.transactionDao()
+
+    @Provides
+    fun provideBudgetDao(database: SavingsDatabase): BudgetDao = database.budgetDao()
+
+    @Provides
+    fun provideSubBudgetDao(database: SavingsDatabase): SubBudgetDao = database.subBudgetDao()
 }

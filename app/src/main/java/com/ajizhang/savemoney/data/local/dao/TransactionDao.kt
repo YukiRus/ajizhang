@@ -28,6 +28,18 @@ interface TransactionDao {
     @Upsert
     suspend fun upsert(transaction: TransactionEntity)
 
+    @Query("""
+        SELECT COALESCE(SUM(CASE WHEN type = 'EXPENSE' THEN amount - refundedAmount ELSE 0 END), 0)
+        FROM transactions WHERE subBudgetId = :subBudgetId
+    """)
+    suspend fun sumSpentBySubBudgetId(subBudgetId: Long): Long
+
+    @Query("UPDATE transactions SET subBudgetId = NULL WHERE subBudgetId = :subBudgetId")
+    suspend fun unlinkSubBudget(subBudgetId: Long)
+
+    @Query("SELECT * FROM transactions WHERE subBudgetId = :subBudgetId ORDER BY occurredAt DESC, id DESC")
+    suspend fun getBySubBudgetId(subBudgetId: Long): List<TransactionEntity>
+
     @Delete
     suspend fun delete(transaction: TransactionEntity)
 }

@@ -1,5 +1,4 @@
 
-
 package com.ajizhang.savemoney.data.remote
 
 import android.util.Base64
@@ -25,6 +24,7 @@ class LlmExpenseRecognizer @Inject constructor(
     suspend fun recognizeExpense(
         wavBytes: ByteArray,
         categories: List<String>,
+        subBudgetNames: List<String> = emptyList(),
         today: LocalDate,
         now: LocalDateTime,
     ): Result<ExpenseRecognitionResult> =
@@ -35,19 +35,29 @@ class LlmExpenseRecognizer @Inject constructor(
 
                 val requestUrl = buildChatCompletionsUrl(settings.apiBaseUrl)
                 val categoryJson = JSONArray(categories).toString()
+                val subBudgetJson = JSONArray(subBudgetNames).toString()
+                val subBudgetHint = if (subBudgetNames.isNotEmpty()) {
+                    """
+                    当前月份的子预算列表：$subBudgetJson
+                    请根据支出描述判断属于哪个子预算，将子预算名称填入 budgetSubName 字段；无法判断时填空字符串。
+                    """.trimIndent()
+                } else ""
+
                 val prompt =
                     """
-                    你是记账助手。请根据这段语音识别一笔“支出”，并只返回一个 JSON 对象，不要 markdown，不要解释。
+                    你是记账助手。请根据这段语音识别一笔"支出"，并只返回一个 JSON 对象，不要 markdown，不要解释。
                     当前日期是 ${today}，当前时间是 ${now.toLocalTime()}，当前完整时间是 ${now}。
                     category 必须从这个分类数组中选择，并且输出时必须逐字复用其中某一个值，不能改写，不能新增：$categoryJson
                     如果语音里没有明确日期，就使用今天 ${today}。
                     如果语音里没有明确时间，就结合上下文推断一个最可能的时间；如果仍然无法判断，就使用当前时间 ${now.toLocalTime()}。
+                    $subBudgetHint
                     JSON 字段格式如下：
-                    {"amount":"12.50","category":"餐饮","note":"午饭","date":"${today}","time":"12:30"}
+                    {"amount":"12.50","category":"餐饮","note":"午饭","date":"${today}","time":"12:30","budgetSubName":""}
                     amount 使用元为单位的阿拉伯数字，不带货币符号；无法识别时填空字符串。
                     note 用简短中文描述具体支出。
                     date 必须是 yyyy-MM-dd。
                     time 必须是 HH:mm。
+                    budgetSubName 必须是子预算列表中的值，不能改写、不能新增；无法判断时填空字符串。
                     """.trimIndent()
 
                 val requestBody =
@@ -55,7 +65,6 @@ class LlmExpenseRecognizer @Inject constructor(
                         put("model", settings.modelName)
                         put("temperature", 0.1)
                         if (isOpenRouterUrl(settings.apiBaseUrl)) {
-                            // OpenRouter documents `reasoning.effort = "none"` as the way to disable reasoning.
                             put(
                                 "reasoning",
                                 JSONObject().apply {
@@ -140,6 +149,7 @@ class LlmExpenseRecognizer @Inject constructor(
                     note = payload.optString("note"),
                     dateText = payload.optString("date"),
                     timeText = payload.optString("time"),
+                    budgetSubName = payload.optString("budgetSubName"),
                     rawResponse = assistantText,
                 )
             }
@@ -149,6 +159,7 @@ class LlmExpenseRecognizer @Inject constructor(
         imageBytes: ByteArray,
         mimeType: String,
         categories: List<String>,
+        subBudgetNames: List<String> = emptyList(),
         today: LocalDate,
         now: LocalDateTime,
     ): Result<ImageExpenseRecognitionResult> =
@@ -160,6 +171,14 @@ class LlmExpenseRecognizer @Inject constructor(
                 val requestUrl = buildChatCompletionsUrl(settings.apiBaseUrl)
                 val categoryJson = JSONArray(categories).toString()
                 val dataUrl = "data:$mimeType;base64,${Base64.encodeToString(imageBytes, Base64.NO_WRAP)}"
+                val subBudgetJson = JSONArray(subBudgetNames).toString()
+                val subBudgetHint = if (subBudgetNames.isNotEmpty()) {
+                    """
+                    
+                    当前月份的子预算列表：$subBudgetJson
+                    请根据支出内容判断每笔支出属于哪个子预算，将子预算名称填入每条记录的 budgetSubName 字段；无法判断时填空字符串。
+                    """.trimIndent()
+                } else ""
 
                 val prompt =
                     """
@@ -172,12 +191,12 @@ class LlmExpenseRecognizer @Inject constructor(
 
                     日期默认使用今天：${today}，时间默认用当前时间：${now.toLocalTime()}。
                     如果图片中有明确的日期或时间，优先使用图片中的信息。
-
+                    $subBudgetHint
                     每项格式：
-                    {"amount":"金额(元)","category":"分类","note":"简短描述(10字内)","date":"yyyy-MM-dd","time":"HH:mm"}
+                    {"amount":"金额(元)","category":"分类","note":"简短描述(10字内)","date":"yyyy-MM-dd","time":"HH:mm","budgetSubName":""}
 
                     只返回 JSON 数组，不要 markdown，不要解释，不要多余文字。
-                    示例：[{"amount":"12.50","category":"餐饮","note":"午饭","date":"${today}","time":"12:30"}]
+                    示例：[{"amount":"12.50","category":"餐饮","note":"午饭","date":"${today}","time":"12:30","budgetSubName":"日常餐饮"}]
 
                     如果图片中没有任何支出信息，返回空数组 []。
                     """.trimIndent()
